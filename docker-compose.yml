@@ -1,27 +1,7 @@
 version: "3.8"
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: app_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: app_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app_network
-
-  # Redis - Message Broker for Celery
+  # Redis - Message Broker for Celery and WebSocket pub/sub
   redis:
     image: redis:7-alpine
     container_name: app_redis
@@ -51,14 +31,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/app_db
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - FRONTEND_URL=http://localhost:3000
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -74,12 +52,9 @@ services:
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/app_db
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -95,12 +70,9 @@ services:
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/app_db
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -145,7 +117,6 @@ services:
       - app_network
 
 volumes:
-  postgres_data:
   redis_data:
 
 networks:

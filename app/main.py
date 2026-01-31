@@ -12,7 +12,6 @@ import redis
 
 from app.celery_app import celery_app
 from app.tasks import hello_world_task, hello_with_name_task, chat_task
-from app.database import init_db
 
 # Frontend URL for CORS (defaults to localhost for development)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -61,9 +60,8 @@ class HelloNameRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database and async Redis client on startup."""
+    """Initialize async Redis client on startup."""
     global async_redis_client
-    await init_db()
     # Create async Redis client for WebSocket pub/sub
     # Note: Each pubsub subscription creates its own connection internally
     async_redis_client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
