@@ -119,24 +119,29 @@ def chat_task(self, chat_id: str):
     """
     A chat task that simulates a long IO-bound operation and streams
     responses back to the frontend via Redis Pub/Sub.
-    
+
     This mimics a chatbot generating a response word by word.
     """
     channel = f"chat:{chat_id}"
     task_id = self.request.id
-    
+
     logger.info(f"Chat task started for chat_id: {chat_id}, task_id: {task_id}")
-    
+
     # Notify that task has started
-    redis_publisher.publish(channel, json.dumps({
-        "type": "start",
-        "task_id": task_id,
-        "message": "Processing your request..."
-    }))
-    
+    redis_publisher.publish(
+        channel,
+        json.dumps(
+            {
+                "type": "start",
+                "task_id": task_id,
+                "message": "Processing your request...",
+            }
+        ),
+    )
+
     # Simulate initial processing delay
     time.sleep(random.uniform(1, 2))
-    
+
     # Simulated chatbot response (streamed word by word)
     response_text = (
         "Hello! I'm your AI assistant. Thank you for starting this chat. "
@@ -148,40 +153,50 @@ def chat_task(self, chat_id: str):
         "where responses are generated incrementally. "
         "The task is now complete. Have a great day!"
     )
-    
+
     words = response_text.split()
     total_words = len(words)
-    
+
     # Stream each word with a small delay to simulate typing
     for i, word in enumerate(words):
         # Publish each word/chunk
-        redis_publisher.publish(channel, json.dumps({
-            "type": "stream",
-            "task_id": task_id,
-            "content": word + " ",
-            "progress": {
-                "current": i + 1,
-                "total": total_words,
-                "percent": int(((i + 1) / total_words) * 100)
-            }
-        }))
-        
+        redis_publisher.publish(
+            channel,
+            json.dumps(
+                {
+                    "type": "stream",
+                    "task_id": task_id,
+                    "content": word + " ",
+                    "progress": {
+                        "current": i + 1,
+                        "total": total_words,
+                        "percent": int(((i + 1) / total_words) * 100),
+                    },
+                }
+            ),
+        )
+
         # Simulate varying typing speed
         time.sleep(random.uniform(0.05, 0.15))
-    
+
     # Send completion message
-    redis_publisher.publish(channel, json.dumps({
-        "type": "complete",
-        "task_id": task_id,
-        "message": "Response complete",
-        "full_response": response_text
-    }))
-    
+    redis_publisher.publish(
+        channel,
+        json.dumps(
+            {
+                "type": "complete",
+                "task_id": task_id,
+                "message": "Response complete",
+                "full_response": response_text,
+            }
+        ),
+    )
+
     logger.info(f"Chat task completed for chat_id: {chat_id}")
-    
+
     return {
         "status": "completed",
         "chat_id": chat_id,
         "task_id": task_id,
-        "response": response_text
+        "response": response_text,
     }

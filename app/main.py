@@ -18,7 +18,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # Redis URL (supports authentication for cloud deployments like Railway)
 # Format: redis://[[username:]password@]host[:port][/db]
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL") or "redis://redis:6379/0"
 
 # Redis client for queue inspection (sync)
 redis_client = redis.from_url(REDIS_URL)
