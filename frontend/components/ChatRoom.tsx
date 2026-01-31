@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface Message {
@@ -27,6 +27,34 @@ interface StreamMessage {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
 
+// Memoized message item to prevent re-renders
+const MessageItem = memo(function MessageItem({ 
+  message, 
+  getMessageStyles 
+}: { 
+  message: Message;
+  getMessageStyles: (type: 'user' | 'assistant' | 'system') => string;
+}) {
+  return (
+    <div
+      className={`flex ${
+        message.type === 'user' ? 'justify-end' : 'justify-start'
+      }`}
+    >
+      <div
+        className={`max-w-[80%] rounded-lg px-4 py-2 ${getMessageStyles(message.type)}`}
+      >
+        {message.type !== 'system' && (
+          <div className="text-xs opacity-70 mb-1">
+            {message.type === 'user' ? 'You' : 'Assistant'}
+          </div>
+        )}
+        <p className="whitespace-pre-wrap">{message.content}</p>
+      </div>
+    </div>
+  );
+});
+
 export default function ChatRoom() {
   const [chatId] = useState(() => uuidv4());
   const [messages, setMessages] = useState<Message[]>([]);
@@ -37,12 +65,13 @@ export default function ChatRoom() {
   
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentResponseRef = useRef(''); // Ref to access current response in callbacks
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const getMessageStyles = (type: 'user' | 'assistant' | 'system') => {
+  const getMessageStyles = useCallback((type: 'user' | 'assistant' | 'system') => {
     switch (type) {
       case 'user':
         return 'bg-blue-500 text-white';
@@ -51,7 +80,7 @@ export default function ChatRoom() {
       case 'system':
         return 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-sm italic';
     }
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -88,16 +117,20 @@ export default function ChatRoom() {
             break;
 
           case 'start':
+            currentResponseRef.current = '';
             setCurrentResponse('');
             setProgress(0);
             break;
 
-          case 'stream':
-            setCurrentResponse((prev) => prev + (data.content || ''));
+          case 'stream': {
+            const newContent = data.content || '';
+            currentResponseRef.current += newContent;
+            setCurrentResponse(currentResponseRef.current);
             if (data.progress) {
               setProgress(data.progress.percent);
             }
             break;
+          }
 
           case 'complete':
             // Finalize the assistant message
@@ -106,10 +139,11 @@ export default function ChatRoom() {
               {
                 id: uuidv4(),
                 type: 'assistant',
-                content: data.full_response || currentResponse,
+                content: data.full_response || currentResponseRef.current,
                 timestamp: new Date(),
               },
             ]);
+            currentResponseRef.current = '';
             setCurrentResponse('');
             setProgress(null);
             setIsLoading(false);
@@ -131,7 +165,7 @@ export default function ChatRoom() {
     };
 
     wsRef.current = ws;
-  }, [chatId, currentResponse]);
+  }, [chatId]); // Only depend on chatId, not currentResponse
 
   useEffect(() => {
     connectWebSocket();
@@ -221,23 +255,11 @@ export default function ChatRoom() {
         )}
 
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.type === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${getMessageStyles(message.type)}`}
-            >
-              {message.type !== 'system' && (
-                <div className="text-xs opacity-70 mb-1">
-                  {message.type === 'user' ? 'You' : 'Assistant'}
-                </div>
-              )}
-              <p className="whitespace-pre-wrap">{message.content}</p>
-            </div>
-          </div>
+          <MessageItem 
+            key={message.id} 
+            message={message} 
+            getMessageStyles={getMessageStyles} 
+          />
         ))}
 
         {/* Streaming response */}
