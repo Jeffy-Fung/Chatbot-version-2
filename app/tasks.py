@@ -10,7 +10,9 @@ from app.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 # Redis URL (supports authentication for cloud deployments like Railway)
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL") or "redis://redis:6379/0"
+
+print(f"[TASKS] REDIS_URL = '{REDIS_URL}'")
 
 # Redis client for publishing chat messages
 redis_publisher = redis.from_url(REDIS_URL)

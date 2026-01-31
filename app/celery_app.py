@@ -5,6 +5,9 @@ from celery import Celery
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL") or "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or "redis://redis:6379/1"
 
+print(f"[CELERY] BROKER = '{CELERY_BROKER_URL}'")
+print(f"[CELERY] BACKEND = '{CELERY_RESULT_BACKEND}'")
+
 celery_app = Celery(
     "worker",
     broker=CELERY_BROKER_URL,
