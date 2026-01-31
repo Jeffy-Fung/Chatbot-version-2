@@ -50,9 +50,7 @@ async def trigger_hello_world_task():
     """
     task = hello_world_task.delay()
     return TaskResponse(
-        task_id=task.id,
-        status="queued",
-        message="Hello world task has been queued"
+        task_id=task.id, status="queued", message="Hello world task has been queued"
     )
 
 
@@ -66,7 +64,7 @@ async def trigger_hello_name_task(name: str):
     return TaskResponse(
         task_id=task.id,
         status="queued",
-        message=f"Hello task for '{name}' has been queued"
+        message=f"Hello task for '{name}' has been queued",
     )
 
 
@@ -74,38 +72,48 @@ async def trigger_hello_name_task(name: str):
 async def get_task_status(task_id: str):
     """
     Get the status and result of a task by its ID.
+    Includes progress information for long-running tasks.
     """
     task_result = AsyncResult(task_id, app=celery_app)
-    
+
     if task_result.state == "PENDING":
         return TaskStatusResponse(
             task_id=task_id,
             status="pending",
-            result=None
+            result={"message": "Task is waiting to be processed"},
         )
     elif task_result.state == "STARTED":
         return TaskStatusResponse(
             task_id=task_id,
             status="started",
-            result=None
+            result={"message": "Task has started processing"},
+        )
+    elif task_result.state == "PROGRESS":
+        # Return progress information for long-running tasks
+        meta = task_result.info or {}
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="in_progress",
+            result={
+                "current_step": meta.get("current", 0),
+                "total_steps": meta.get("total", 0),
+                "progress_percent": int(
+                    (meta.get("current", 0) / meta.get("total", 1)) * 100
+                ),
+                "status_message": meta.get("status", "Processing..."),
+            },
         )
     elif task_result.state == "SUCCESS":
         return TaskStatusResponse(
-            task_id=task_id,
-            status="completed",
-            result=task_result.result
+            task_id=task_id, status="completed", result=task_result.result
         )
     elif task_result.state == "FAILURE":
         return TaskStatusResponse(
-            task_id=task_id,
-            status="failed",
-            result={"error": str(task_result.result)}
+            task_id=task_id, status="failed", result={"error": str(task_result.result)}
         )
     else:
         return TaskStatusResponse(
-            task_id=task_id,
-            status=task_result.state.lower(),
-            result=None
+            task_id=task_id, status=task_result.state.lower(), result=None
         )
 
 
@@ -119,6 +127,6 @@ async def root():
         "endpoints": {
             "trigger_hello_task": "POST /tasks/hello",
             "trigger_hello_name_task": "POST /tasks/hello/{name}",
-            "get_task_status": "GET /tasks/{task_id}"
-        }
+            "get_task_status": "GET /tasks/{task_id}",
+        },
     }
