@@ -43,7 +43,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: app_api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Production: 4 workers for multi-process concurrency
+    # Development: use --reload instead of --workers 4 for hot reloading
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     volumes:
       - .:/app
     ports:
@@ -53,6 +55,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - FRONTEND_URL=http://localhost:3000
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,13 +64,13 @@ services:
     networks:
       - app_network
 
-  # Celery Worker 1
+  # Celery Worker 1 (with gevent for high concurrency IO-bound tasks)
   celery_worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: app_celery_worker_1
-    command: celery -A app.celery_app worker --loglevel=info --hostname=worker1@%h
+    command: celery -A app.celery_app worker --loglevel=info --hostname=worker1@%h --pool=gevent --concurrency=100
     volumes:
       - .:/app
     environment:
@@ -82,13 +85,13 @@ services:
     networks:
       - app_network
 
-  # Celery Worker 2
+  # Celery Worker 2 (with gevent for high concurrency IO-bound tasks)
   celery_worker_2:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: app_celery_worker_2
-    command: celery -A app.celery_app worker --loglevel=info --hostname=worker2@%h
+    command: celery -A app.celery_app worker --loglevel=info --hostname=worker2@%h --pool=gevent --concurrency=100
     volumes:
       - .:/app
     environment:

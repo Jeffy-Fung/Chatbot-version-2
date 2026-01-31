@@ -17,10 +17,15 @@ from app.database import init_db
 # Frontend URL for CORS (defaults to localhost for development)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-# Redis client for queue inspection (sync)
-redis_client = redis.Redis(host="redis", port=6379, db=0)
+# Redis URL for connection pooling
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-# Async Redis client for WebSocket pub/sub
+# Redis client for queue inspection (sync) with connection pooling
+redis_pool = redis.ConnectionPool.from_url(REDIS_URL, max_connections=50)
+redis_client = redis.Redis(connection_pool=redis_pool)
+
+# Async Redis client for WebSocket pub/sub (initialized on startup)
+async_redis_pool: aioredis.ConnectionPool = None
 async_redis_client: aioredis.Redis = None
 
 app = FastAPI(
@@ -57,18 +62,25 @@ class HelloNameRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database and async Redis client on startup."""
-    global async_redis_client
+    """Initialize database and async Redis client with connection pooling on startup."""
+    global async_redis_pool, async_redis_client
     await init_db()
-    async_redis_client = aioredis.Redis(host="redis", port=6379, db=0)
+    # Create async Redis connection pool for efficient WebSocket pub/sub
+    async_redis_pool = aioredis.ConnectionPool.from_url(
+        REDIS_URL,
+        max_connections=100,  # Support up to 100 concurrent WebSocket connections per worker
+    )
+    async_redis_client = aioredis.Redis(connection_pool=async_redis_pool)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup async Redis client on shutdown."""
-    global async_redis_client
+    """Cleanup async Redis client and connection pool on shutdown."""
+    global async_redis_pool, async_redis_client
     if async_redis_client:
         await async_redis_client.close()
+    if async_redis_pool:
+        await async_redis_pool.disconnect()
 
 
 @app.get("/health")
