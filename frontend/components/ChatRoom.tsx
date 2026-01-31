@@ -3,9 +3,11 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
+type MessageType = 'user' | 'assistant' | 'system';
+
 interface Message {
   id: string;
-  type: 'user' | 'assistant' | 'system';
+  type: MessageType;
   content: string;
   timestamp: Date;
 }
@@ -33,7 +35,7 @@ const MessageItem = memo(function MessageItem({
   getMessageStyles 
 }: { 
   message: Message;
-  getMessageStyles: (type: 'user' | 'assistant' | 'system') => string;
+  getMessageStyles: (type: MessageType) => string;
 }) {
   return (
     <div
@@ -71,7 +73,7 @@ export default function ChatRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const getMessageStyles = useCallback((type: 'user' | 'assistant' | 'system') => {
+  const getMessageStyles = useCallback((type: MessageType): string => {
     switch (type) {
       case 'user':
         return 'bg-blue-500 text-white';
@@ -105,11 +107,11 @@ export default function ChatRoom() {
 
         switch (data.type) {
           case 'connected':
-            setMessages((prev) => [
+            setMessages((prev: Message[]) => [
               ...prev,
               {
                 id: uuidv4(),
-                type: 'system',
+                type: 'system' as MessageType,
                 content: `Connected to chat room: ${chatId.slice(0, 8)}...`,
                 timestamp: new Date(),
               },
@@ -134,11 +136,11 @@ export default function ChatRoom() {
 
           case 'complete':
             // Finalize the assistant message
-            setMessages((prev) => [
+            setMessages((prev: Message[]) => [
               ...prev,
               {
                 id: uuidv4(),
-                type: 'assistant',
+                type: 'assistant' as MessageType,
                 content: data.full_response || currentResponseRef.current,
                 timestamp: new Date(),
               },
@@ -183,11 +185,11 @@ export default function ChatRoom() {
     setIsLoading(true);
     
     // Add user message
-    setMessages((prev) => [
+    setMessages((prev: Message[]) => [
       ...prev,
       {
         id: uuidv4(),
-        type: 'user',
+        type: 'user' as MessageType,
         content: 'Start chat',
         timestamp: new Date(),
       },
@@ -209,11 +211,11 @@ export default function ChatRoom() {
       console.log('Task started:', data);
     } catch (error) {
       console.error('Failed to start chat:', error);
-      setMessages((prev) => [
+      setMessages((prev: Message[]) => [
         ...prev,
         {
           id: uuidv4(),
-          type: 'system',
+          type: 'system' as MessageType,
           content: `Error: Failed to start chat. Make sure the backend is running.`,
           timestamp: new Date(),
         },
@@ -254,7 +256,7 @@ export default function ChatRoom() {
           </div>
         )}
 
-        {messages.map((message) => (
+        {messages.map((message: Message) => (
           <MessageItem 
             key={message.id} 
             message={message} 
