@@ -84,20 +84,23 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
     Each chat room (identified by chat_id) subscribes to its own Redis channel.
     """
     await websocket.accept()
-    
+
     # Subscribe to Redis channel for this chat
     pubsub = async_redis_client.pubsub()
     await pubsub.subscribe(f"chat:{chat_id}")
-    
+
     try:
         # Send connection confirmation
-        await websocket.send_json({
-            "type": "connected",
-            "chat_id": chat_id,
-            "message": "Connected to chat room"
-        })
-        
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "chat_id": chat_id,
+                "message": "Connected to chat room",
+            }
+        )
+
         # Listen for messages from Redis and forward to WebSocket
+        # Connection stays open until client disconnects (e.g., leaves the page)
         async for message in pubsub.listen():
             if message["type"] == "message":
                 data = message["data"]
@@ -106,13 +109,9 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str):
                 try:
                     parsed_data = json.loads(data)
                     await websocket.send_json(parsed_data)
-                    
-                    # If this is a completion message, we can optionally close
-                    if parsed_data.get("type") == "complete":
-                        break
                 except json.JSONDecodeError:
                     await websocket.send_text(data)
-                    
+
     except WebSocketDisconnect:
         pass
     finally:
@@ -131,7 +130,7 @@ async def start_chat(chat_id: str):
     return TaskResponse(
         task_id=task.id,
         status="accepted",
-        message=f"Chat task started for room '{chat_id}'"
+        message=f"Chat task started for room '{chat_id}'",
     )
 
 
