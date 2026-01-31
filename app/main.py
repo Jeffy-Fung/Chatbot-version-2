@@ -1,20 +1,41 @@
-from fastapi import FastAPI, HTTPException
+import asyncio
+import json
+import os
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from celery.result import AsyncResult
 from pydantic import BaseModel
 from typing import Optional
+import redis.asyncio as aioredis
 import redis
 
 from app.celery_app import celery_app
-from app.tasks import hello_world_task, hello_with_name_task
+from app.tasks import hello_world_task, hello_with_name_task, chat_task
 from app.database import init_db
 
-# Redis client for queue inspection
+# Frontend URL for CORS (defaults to localhost for development)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# Redis client for queue inspection (sync)
 redis_client = redis.Redis(host="redis", port=6379, db=0)
+
+# Async Redis client for WebSocket pub/sub
+async_redis_client: aioredis.Redis = None
 
 app = FastAPI(
     title="FastAPI Celery App",
-    description="FastAPI application with Celery background tasks",
+    description="FastAPI application with Celery background tasks and WebSocket support",
     version="1.0.0",
+)
+
+# CORS middleware for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_URL],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -36,14 +57,82 @@ class HelloNameRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database and async Redis client on startup."""
+    global async_redis_client
     await init_db()
+    async_redis_client = aioredis.Redis(host="redis", port=6379, db=0)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup async Redis client on shutdown."""
+    global async_redis_client
+    if async_redis_client:
+        await async_redis_client.close()
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "fastapi-celery-app"}
+
+
+@app.websocket("/ws/{chat_id}")
+async def websocket_endpoint(websocket: WebSocket, chat_id: str):
+    """
+    WebSocket endpoint for receiving streamed chat responses.
+    Each chat room (identified by chat_id) subscribes to its own Redis channel.
+    """
+    await websocket.accept()
+    
+    # Subscribe to Redis channel for this chat
+    pubsub = async_redis_client.pubsub()
+    await pubsub.subscribe(f"chat:{chat_id}")
+    
+    try:
+        # Send connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "chat_id": chat_id,
+            "message": "Connected to chat room"
+        })
+        
+        # Listen for messages from Redis and forward to WebSocket
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                data = message["data"]
+                if isinstance(data, bytes):
+                    data = data.decode("utf-8")
+                try:
+                    parsed_data = json.loads(data)
+                    await websocket.send_json(parsed_data)
+                    
+                    # If this is a completion message, we can optionally close
+                    if parsed_data.get("type") == "complete":
+                        break
+                except json.JSONDecodeError:
+                    await websocket.send_text(data)
+                    
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await pubsub.unsubscribe(f"chat:{chat_id}")
+        await pubsub.close()
+
+
+@app.post("/chat/{chat_id}/start", response_model=TaskResponse)
+async def start_chat(chat_id: str):
+    """
+    Start a chat task that streams responses via WebSocket.
+    Returns immediately with 202 Accepted status.
+    The task runs in the background and publishes updates to Redis.
+    """
+    task = chat_task.delay(chat_id)
+    return TaskResponse(
+        task_id=task.id,
+        status="accepted",
+        message=f"Chat task started for room '{chat_id}'"
+    )
 
 
 @app.post("/tasks/hello", response_model=TaskResponse)
@@ -174,5 +263,7 @@ async def root():
             "trigger_hello_name_task": "POST /tasks/hello/{name}",
             "get_task_status": "GET /tasks/{task_id}",
             "queue_stats": "GET /queue/stats",
+            "start_chat": "POST /chat/{chat_id}/start",
+            "websocket_chat": "WS /ws/{chat_id}",
         },
     }
