@@ -60,13 +60,34 @@ services:
     networks:
       - app_network
 
-  # Celery Worker
+  # Celery Worker 1
   celery_worker:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: app_celery_worker
-    command: celery -A app.celery_app worker --loglevel=info
+    container_name: app_celery_worker_1
+    command: celery -A app.celery_app worker --loglevel=info --hostname=worker1@%h
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/app_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  # Celery Worker 2
+  celery_worker_2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: app_celery_worker_2
+    command: celery -A app.celery_app worker --loglevel=info --hostname=worker2@%h
     volumes:
       - .:/app
     environment:
