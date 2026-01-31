@@ -2,10 +2,14 @@ from fastapi import FastAPI, HTTPException
 from celery.result import AsyncResult
 from pydantic import BaseModel
 from typing import Optional
+import redis
 
 from app.celery_app import celery_app
 from app.tasks import hello_world_task, hello_with_name_task
 from app.database import init_db
+
+# Redis client for queue inspection
+redis_client = redis.Redis(host="redis", port=6379, db=0)
 
 app = FastAPI(
     title="FastAPI Celery App",
@@ -117,6 +121,47 @@ async def get_task_status(task_id: str):
         )
 
 
+@app.get("/queue/stats")
+async def get_queue_stats():
+    """
+    Get queue statistics including waiting tasks.
+    Shows tasks in the queue that haven't been picked up by workers yet.
+    """
+    try:
+        # Get the length of the default celery queue
+        queue_length = redis_client.llen("celery")
+
+        # Get active queues info from Celery
+        inspect = celery_app.control.inspect()
+
+        # Get active tasks (currently being processed)
+        active = inspect.active() or {}
+        active_count = sum(len(tasks) for tasks in active.values())
+
+        # Get reserved tasks (prefetched by workers)
+        reserved = inspect.reserved() or {}
+        reserved_count = sum(len(tasks) for tasks in reserved.values())
+
+        # Get scheduled tasks (eta/countdown)
+        scheduled = inspect.scheduled() or {}
+        scheduled_count = sum(len(tasks) for tasks in scheduled.values())
+
+        return {
+            "queue": {
+                "waiting": queue_length,  # Tasks in Redis queue waiting to be picked up
+                "active": active_count,  # Tasks currently being executed
+                "reserved": reserved_count,  # Tasks prefetched by workers
+                "scheduled": scheduled_count,  # Tasks scheduled for later
+            },
+            "workers": {
+                "active_tasks": active,
+                "reserved_tasks": reserved,
+            },
+        }
+    except Exception as e:
+        return {"error": str(e), "queue": {"waiting": 0, "active": 0}}
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
@@ -128,5 +173,6 @@ async def root():
             "trigger_hello_task": "POST /tasks/hello",
             "trigger_hello_name_task": "POST /tasks/hello/{name}",
             "get_task_status": "GET /tasks/{task_id}",
+            "queue_stats": "GET /queue/stats",
         },
     }
