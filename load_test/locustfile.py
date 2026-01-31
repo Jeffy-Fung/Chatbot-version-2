@@ -22,13 +22,22 @@ from urllib.parse import urlparse
 from locust import HttpUser, task, between, events
 import websocket
 
-# Configure logging
+# Configure logging - force output to console
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
-    datefmt='%H:%M:%S'
+    datefmt='%H:%M:%S',
+    force=True  # Override any existing config
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Also print to stdout directly for visibility
+import sys
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s', '%H:%M:%S'))
+logger.addHandler(handler)
 
 
 def get_ws_url(http_host: str) -> str:
@@ -67,22 +76,24 @@ class ChatUser(HttpUser):
         ws_base = get_ws_url(self.host)
         ws_url = f"{ws_base}/ws/{self.chat_id}"
         
-        logger.info(f"[{self.chat_id[:8]}] Connecting to WebSocket: {ws_url}")
+        print(f">>> [{self.chat_id[:8]}] Connecting to WebSocket: {ws_url}")
         
         try:
-            self.ws = websocket.create_connection(ws_url, timeout=30)
-            # Set non-blocking for receiving
-            self.ws.settimeout(0.1)
-            # Receive the "connected" message
-            try:
-                self.ws.recv()
-            except:
-                pass
+            # Create connection with reasonable timeout
+            self.ws = websocket.create_connection(ws_url, timeout=60)
+            
+            # Receive the "connected" message (should arrive immediately)
+            self.ws.settimeout(10)
+            msg = self.ws.recv()
+            print(f">>> [{self.chat_id[:8]}] Received initial: {msg[:80]}...")
+            
             self.ws_connected = True
-            logger.info(f"[{self.chat_id[:8]}] ✓ WebSocket connected successfully")
+            print(f">>> [{self.chat_id[:8]}] ✓ WebSocket connected and ready!")
+            
         except Exception as e:
-            logger.error(f"[{self.chat_id[:8]}] ✗ Failed to connect WebSocket: {e}")
+            print(f">>> [{self.chat_id[:8]}] ✗ FAILED to connect: {type(e).__name__}: {e}")
             self.ws_connected = False
+            self.ws = None
     
     def on_stop(self):
         """Called when a user stops - close WebSocket."""
@@ -106,29 +117,33 @@ class ChatUser(HttpUser):
         """
         # Reconnect if connection was lost
         if not self.ws_connected or not self.ws:
-            logger.warning(f"[{self.chat_id[:8]}] Connection lost, reconnecting...")
+            print(f">>> [{self.chat_id[:8]}] No connection, connecting...")
             self._connect_websocket()
             if not self.ws_connected:
-                logger.error(f"[{self.chat_id[:8]}] Reconnection failed, skipping task")
+                print(f">>> [{self.chat_id[:8]}] ✗ Could not connect, skipping")
                 return
         
         start_time = time.time()
         messages_received = 0
         success = False
         
-        logger.info(f"[{self.chat_id[:8]}] Sending chat message (POST /chat/{{id}}/start)")
+        print(f">>> [{self.chat_id[:8]}] POST /chat/{self.chat_id[:8]}.../start")
         
         try:
             # Trigger the chat task via HTTP (same chat_id, same WebSocket)
             response = self.client.post(f"/chat/{self.chat_id}/start")
             
-            if response.status_code != 200:
-                raise Exception(f"Failed to start chat: {response.status_code}")
+            print(f">>> [{self.chat_id[:8]}] POST response: {response.status_code}")
             
-            logger.info(f"[{self.chat_id[:8]}] Chat started, waiting for streamed response...")
+            if response.status_code != 200:
+                print(f">>> [{self.chat_id[:8]}] ERROR: {response.status_code} - {response.text[:100]}")
+                raise Exception(f"HTTP {response.status_code}")
+            
+            print(f">>> [{self.chat_id[:8]}] Waiting for WebSocket messages...")
             
             # Receive messages on the persistent WebSocket until complete
-            self.ws.settimeout(30)  # Wait up to 30s for response
+            self.ws.settimeout(60)  # Wait up to 60s for full response
+            
             while True:
                 try:
                     result = self.ws.recv()
@@ -136,30 +151,35 @@ class ChatUser(HttpUser):
                     messages_received += 1
                     
                     msg_type = data.get("type", "unknown")
-                    if msg_type == "stream":
-                        # Log progress every 10 messages to avoid spam
-                        if messages_received % 10 == 0:
+                    
+                    if msg_type == "start":
+                        print(f">>> [{self.chat_id[:8]}] Got 'start' message")
+                    elif msg_type == "stream":
+                        # Show progress periodically
+                        if messages_received % 20 == 0:
                             progress = data.get("progress", {}).get("percent", "?")
-                            logger.debug(f"[{self.chat_id[:8]}] Streaming... {progress}% ({messages_received} msgs)")
+                            print(f">>> [{self.chat_id[:8]}] Streaming... {progress}%")
                     elif msg_type == "complete":
                         success = True
-                        logger.info(f"[{self.chat_id[:8]}] ✓ Response complete ({messages_received} messages, {(time.time() - start_time):.1f}s)")
+                        elapsed = time.time() - start_time
+                        print(f">>> [{self.chat_id[:8]}] ✓ COMPLETE! {messages_received} msgs in {elapsed:.1f}s")
                         break
+                    else:
+                        print(f">>> [{self.chat_id[:8]}] Got message type: {msg_type}")
                         
                 except websocket.WebSocketTimeoutException:
-                    logger.warning(f"[{self.chat_id[:8]}] Timeout waiting for response")
+                    print(f">>> [{self.chat_id[:8]}] ✗ TIMEOUT after {time.time() - start_time:.1f}s")
                     break
-                except websocket.WebSocketConnectionClosedException:
-                    logger.error(f"[{self.chat_id[:8]}] WebSocket connection closed unexpectedly")
+                except websocket.WebSocketConnectionClosedException as e:
+                    print(f">>> [{self.chat_id[:8]}] ✗ CONNECTION CLOSED: {e}")
                     self.ws_connected = False
                     break
-            
-            # Reset to non-blocking for next iteration
-            if self.ws_connected:
-                self.ws.settimeout(0.1)
+                except json.JSONDecodeError as e:
+                    print(f">>> [{self.chat_id[:8]}] ✗ Invalid JSON: {result[:50]}")
+                    break
             
         except Exception as e:
-            logger.error(f"[{self.chat_id[:8]}] ✗ Error: {e}")
+            print(f">>> [{self.chat_id[:8]}] ✗ ERROR: {type(e).__name__}: {e}")
             events.request.fire(
                 request_type="WebSocket",
                 name="send_chat_message",
@@ -169,15 +189,18 @@ class ChatUser(HttpUser):
             )
             return
         
-        # Report success
+        # Report to Locust
         total_time = (time.time() - start_time) * 1000
         events.request.fire(
             request_type="WebSocket",
             name="send_chat_message",
             response_time=total_time,
             response_length=messages_received,
-            exception=None if success else Exception("Did not receive complete message"),
+            exception=None if success else Exception(f"Incomplete: got {messages_received} msgs"),
         )
+        
+        if success:
+            print(f">>> [{self.chat_id[:8]}] Task SUCCESS, connection still open")
 
 
 class WebSocketOnlyUser(HttpUser):
