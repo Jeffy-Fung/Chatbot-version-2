@@ -2,14 +2,18 @@ import time
 import logging
 import random
 import json
+import os
 import redis
 
 from app.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Redis URL (supports authentication for cloud deployments like Railway)
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
 # Redis client for publishing chat messages
-redis_publisher = redis.Redis(host="redis", port=6379, db=0)
+redis_publisher = redis.from_url(REDIS_URL)
 
 
 @celery_app.task(bind=True, name="hello_world_task")

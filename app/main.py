@@ -16,12 +16,12 @@ from app.tasks import hello_world_task, hello_with_name_task, chat_task
 # Frontend URL for CORS (defaults to localhost for development)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-# Redis host/port for connections
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+# Redis URL (supports authentication for cloud deployments like Railway)
+# Format: redis://[[username:]password@]host[:port][/db]
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 # Redis client for queue inspection (sync)
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
+redis_client = redis.from_url(REDIS_URL)
 
 # Async Redis client for WebSocket pub/sub (initialized on startup)
 async_redis_client: aioredis.Redis = None
@@ -62,9 +62,8 @@ class HelloNameRequest(BaseModel):
 async def startup_event():
     """Initialize async Redis client on startup."""
     global async_redis_client
-    # Create async Redis client for WebSocket pub/sub
-    # Note: Each pubsub subscription creates its own connection internally
-    async_redis_client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
+    # Create async Redis client for WebSocket pub/sub using URL (supports auth)
+    async_redis_client = aioredis.from_url(REDIS_URL)
     # Test the connection
     try:
         await async_redis_client.ping()
