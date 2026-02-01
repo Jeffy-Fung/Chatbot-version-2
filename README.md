@@ -125,6 +125,19 @@ As users increase: response times grow gradually at first, then sharply when a b
 | **Redis** | Connection limits, memory, pub/sub fanout | Connection refused, high Redis CPU | Use Redis cluster, increase `maxclients` |
 | **FastAPI** | WebSocket connections consume memory & file descriptors | Connection drops, memory exhaustion | Increase `ulimit -n`, scale API horizontally |
 
+## Scalability Improvements
+
+This application includes several optimizations for handling high concurrent load:
+
+| Component | Improvement | Details |
+|-----------|-------------|---------|
+| **FastAPI** | 4 Uvicorn workers | Multi-process concurrency to handle more HTTP/WebSocket requests in parallel |
+| **Celery** | Gevent pool with 100 concurrency | Uses `--pool=gevent --concurrency=100` for efficient IO-bound task handling (ideal for chat tasks with network waits) |
+| **Celery** | 2 worker containers | Horizontal scaling with multiple worker containers for higher throughput |
+| **Redis** | Connection pooling | Uses `from_url()` which includes built-in connection pooling, reusing connections instead of creating new ones per request |
+
+These configurations allow the app to handle hundreds of concurrent chat sessions. To scale further, increase the number of Celery worker containers or adjust concurrency settings.
+
 ## Services
 
 | Service | Port | Description |
