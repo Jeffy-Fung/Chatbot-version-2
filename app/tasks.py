@@ -101,21 +101,6 @@ def hello_world_task(self):
     }
 
 
-@celery_app.task(bind=True, name="hello_with_name_task")
-def hello_with_name_task(self, name: str):
-    """
-    A hello task that accepts a name parameter.
-    """
-    logger.info(f"Hello task started for: {name}")
-
-    time.sleep(3)
-
-    message = f"Hello, {name}! Greetings from Celery!"
-    logger.info(f"Task completed: {message}")
-
-    return {"status": "completed", "message": message, "task_id": self.request.id}
-
-
 @celery_app.task(bind=True, name="chat_task")
 def chat_task(self, chat_id: str):
     """

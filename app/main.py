@@ -11,7 +11,7 @@ import redis.asyncio as aioredis
 import redis
 
 from app.celery_app import celery_app
-from app.tasks import hello_world_task, hello_with_name_task, chat_task
+from app.tasks import hello_world_task, chat_task
 
 # Frontend URL for CORS (defaults to localhost for development)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -52,10 +52,6 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: str
     result: Optional[dict] = None
-
-
-class HelloNameRequest(BaseModel):
-    name: str
 
 
 @app.on_event("startup")
@@ -152,20 +148,6 @@ async def trigger_hello_world_task():
     task = hello_world_task.delay()
     return TaskResponse(
         task_id=task.id, status="queued", message="Hello world task has been queued"
-    )
-
-
-@app.post("/tasks/hello/{name}", response_model=TaskResponse)
-async def trigger_hello_name_task(name: str):
-    """
-    Trigger a hello task with a custom name.
-    Returns the task ID which can be used to check the status.
-    """
-    task = hello_with_name_task.delay(name)
-    return TaskResponse(
-        task_id=task.id,
-        status="queued",
-        message=f"Hello task for '{name}' has been queued",
     )
 
 
@@ -268,7 +250,6 @@ async def root():
         "health": "/health",
         "endpoints": {
             "trigger_hello_task": "POST /tasks/hello",
-            "trigger_hello_name_task": "POST /tasks/hello/{name}",
             "get_task_status": "GET /tasks/{task_id}",
             "queue_stats": "GET /queue/stats",
             "start_chat": "POST /chat/{chat_id}/start",

@@ -196,20 +196,6 @@ curl -X POST http://localhost:8000/tasks/hello
 }
 ```
 
-### Trigger Hello Task with Name
-
-```bash
-POST /tasks/hello/{name}
-```
-
-Triggers a hello task with a custom name.
-
-**Example:**
-
-```bash
-curl -X POST http://localhost:8000/tasks/hello/John
-```
-
 ### Check Task Status
 
 ```bash
