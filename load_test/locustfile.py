@@ -38,7 +38,8 @@ class ChatUser(HttpUser):
     5. Only disconnects when leaving (on_stop)
     """
     
-    wait_time = between(2, 5)
+    # Increase wait time to reduce CPU load per user
+    wait_time = between(3, 8)
     
     def on_start(self):
         """Called when a user starts - connect WebSocket once."""

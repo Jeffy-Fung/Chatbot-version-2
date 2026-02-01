@@ -27,21 +27,111 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
 ### WebSocket Streaming Flow
 
 ```
-Frontend (Tab) ──────────────────────────────────────────────────────
-     │                                                               
-     │ 1. Generate UUID (chat_id)                                   
-     │ 2. Connect WebSocket: /ws/{chat_id}                          
-     │                                                               
-     │ 3. Click "Start Chat"                                        
-     │ ───► POST /chat/{chat_id}/start ───► Queue Celery Task       
-     │ ◄─── 202 Accepted (task_id)                                  
-     │                                                               
-     │      [Celery Worker publishes to Redis: chat:{chat_id}]      
-     │                                                               
-     │ ◄─── WebSocket receives streamed words ◄─── Redis Pub/Sub    
-     │ ◄─── WebSocket receives completion message                   
-     └───────────────────────────────────────────────────────────────
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                              CHAT MESSAGE FLOW                                       │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+  │   Browser   │         │   FastAPI   │         │    Redis    │         │   Celery    │
+  │  (Frontend) │         │  (Backend)  │         │  (Pub/Sub)  │         │   Worker    │
+  └──────┬──────┘         └──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+         │                       │                       │                       │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │    PHASE 1: ESTABLISH WEBSOCKET CONNECTION                            │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │                       │                       │                       │
+         │  1. Generate UUID     │                       │                       │
+         │     (chat_id)         │                       │                       │
+         │                       │                       │                       │
+         │  2. WS Connect        │                       │                       │
+         │ ─────────────────────►│                       │                       │
+         │   /ws/{chat_id}       │                       │                       │
+         │                       │  3. Subscribe         │                       │
+         │                       │ ─────────────────────►│                       │
+         │                       │   channel:chat:{id}   │                       │
+         │                       │                       │                       │
+         │  4. {"type":"connected"}                      │                       │
+         │ ◄─────────────────────│                       │                       │
+         │                       │                       │                       │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │    PHASE 2: TRIGGER BACKGROUND TASK                                   │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │                       │                       │                       │
+         │  5. POST /chat/{id}/start                     │                       │
+         │ ─────────────────────►│                       │                       │
+         │                       │                       │                       │
+         │                       │  6. Queue task        │                       │
+         │                       │ ──────────────────────────────────────────────►
+         │                       │   (via Redis broker)  │                       │
+         │                       │                       │                       │
+         │  7. 202 Accepted      │                       │                       │
+         │ ◄─────────────────────│                       │                       │
+         │   {task_id, status}   │                       │                       │
+         │                       │                       │                       │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │    PHASE 3: WORKER PROCESSES & STREAMS VIA REDIS                      │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │                       │                       │                       │
+         │                       │                       │  8. Pick up task      │
+         │                       │                       │ ◄─────────────────────│
+         │                       │                       │                       │
+         │                       │                       │  9. PUBLISH start     │
+         │                       │                       │ ◄─────────────────────│
+         │                       │                       │   chat:{chat_id}      │
+         │                       │                       │                       │
+         │                       │  10. Receive message  │                       │
+         │                       │ ◄─────────────────────│                       │
+         │                       │   (subscribed)        │                       │
+         │                       │                       │                       │
+         │  11. WS: {"type":"start"}                     │                       │
+         │ ◄─────────────────────│                       │                       │
+         │                       │                       │                       │
+         │                       │                       │        ┌──────────────┤
+         │                       │                       │        │ 12. Process  │
+         │                       │                       │        │   & generate │
+         │                       │                       │        │   response   │
+         │                       │                       │        │   word by    │
+         │                       │                       │        │   word       │
+         │                       │                       │        └──────────────┤
+         │                       │                       │                       │
+         │                       │                       │  13. PUBLISH stream   │
+         │                       │ ◄─────────────────────│ ◄─────────────────────│
+         │  14. WS: {"type":"stream", "content":"Hello"} │   "Hello"             │
+         │ ◄─────────────────────│                       │                       │
+         │                       │                       │                       │
+         │                       │                       │  15. PUBLISH stream   │
+         │                       │ ◄─────────────────────│ ◄─────────────────────│
+         │  16. WS: {"type":"stream", "content":"World"} │   "World"             │
+         │ ◄─────────────────────│                       │                       │
+         │                       │                       │                       │
+         │                       │         ...           │         ...           │
+         │                       │   (repeat for each word)                      │
+         │                       │                       │                       │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │    PHASE 4: COMPLETION                                                │
+═════════╪═══════════════════════╪═══════════════════════╪═══════════════════════╪═══════
+         │                       │                       │                       │
+         │                       │                       │  17. PUBLISH complete │
+         │                       │ ◄─────────────────────│ ◄─────────────────────│
+         │                       │                       │   chat:{chat_id}      │
+         │                       │                       │                       │
+         │  18. WS: {"type":"complete", "full_response":"..."}                   │
+         │ ◄─────────────────────│                       │                       │
+         │                       │                       │                       │
+  ┌──────┴──────┐         ┌──────┴──────┐         ┌──────┴──────┐         ┌──────┴──────┐
+  │   Browser   │         │   FastAPI   │         │    Redis    │         │   Celery    │
+  │  (Frontend) │         │  (Backend)  │         │  (Pub/Sub)  │         │   Worker    │
+  └─────────────┘         └─────────────┘         └─────────────┘         └─────────────┘
 ```
+
+### Message Types
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `connected` | Server → Client | WebSocket connection established |
+| `start` | Server → Client | Task has started processing |
+| `stream` | Server → Client | Streamed word/token from response |
+| `complete` | Server → Client | Task finished, includes full response |
 
 ## Services
 
