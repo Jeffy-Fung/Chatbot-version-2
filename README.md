@@ -83,6 +83,8 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
 
 Load testing is available using [Locust](https://locust.io/) to simulate concurrent users and WebSocket connections.
 
+Each simulated user establishes a persistent WebSocket connection (just like a real browser tab), then repeatedly sends chat requests via HTTP POST. The user receives streamed responses through the WebSocket until completion, then waits before sending another message. This mimics real user behavior: connect once, chat multiple times.
+
 ### Running Load Tests
 
 ```bash
@@ -103,6 +105,25 @@ Open http://localhost:8089 to configure and start the test via the web interface
 |-----------|-------------|
 | `ChatUser` | Simulates real users: connects WebSocket, sends chat messages, receives streamed responses |
 | `WebSocketOnlyUser` | Simulates idle users maintaining WebSocket connections (for testing max connection capacity) |
+
+### Key Metrics
+
+| Metric | Meaning | What to Expect |
+|--------|---------|----------------|
+| **Response Time** | Time from request sent to complete response received | Increases as users grow; spikes indicate bottlenecks |
+| **RPS (Requests/sec)** | Throughput - how many requests the system handles | Should scale with users until hitting capacity |
+| **Failure Rate** | Percentage of failed requests | Should stay near 0%; rising failures indicate overload |
+| **Active Users** | Concurrent users with open WebSocket connections | Each holds server resources (memory, file descriptors) |
+
+As users increase: response times grow gradually at first, then sharply when a bottleneck is reached. RPS plateaus when the system is saturated.
+
+### Potential Bottlenecks
+
+| Component | Bottleneck | Symptoms | Solution |
+|-----------|------------|----------|----------|
+| **Celery Workers** | Too many chats exceed worker capacity | Tasks queue up, high latency | Add more workers |
+| **Redis** | Connection limits, memory, pub/sub fanout | Connection refused, high Redis CPU | Use Redis cluster, increase `maxclients` |
+| **FastAPI** | WebSocket connections consume memory & file descriptors | Connection drops, memory exhaustion | Increase `ulimit -n`, scale API horizontally |
 
 ## Services
 
