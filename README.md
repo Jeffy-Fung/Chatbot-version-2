@@ -1,6 +1,6 @@
 # FastAPI + Celery + Next.js Chatbot Application
 
-A full-stack chatbot application with FastAPI backend, Celery background task processing, WebSocket streaming, and a Next.js frontend. Features PostgreSQL database, Redis message broker, and Flower monitoring.
+A full-stack chatbot application with FastAPI backend, Celery background task processing, WebSocket streaming, and a Next.js frontend. Features Redis message broker and Flower monitoring.
 
 ## Architecture
 
@@ -10,14 +10,13 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
 │  Frontend   │◀───▶│  (API/WS)   │     │  (Pub/Sub)  │
 └─────────────┘     └─────────────┘     └──────┬──────┘
    (Port 3000)         (Port 8000)             │
-                            │                  │
-                            ▼                  ▼
-                      ┌─────────────┐   ┌─────────────┐
-                      │ PostgreSQL  │   │   Celery    │
-                      │  (Database) │   │   Worker    │
-                      └─────────────┘   └─────────────┘
-                                              │
-                                              ▼
+                                               ▼
+                                        ┌─────────────┐
+                                        │   Celery    │
+                                        │   Worker    │
+                                        └──────┬──────┘
+                                               │
+                                               ▼
                                         ┌─────────────┐
                                         │   Flower    │
                                         │  (Monitor)  │
@@ -139,7 +138,6 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
 |---------|------|-------------|
 | Next.js Frontend | 3000 | Chat room UI with WebSocket |
 | FastAPI | 8000 | Main API + WebSocket server |
-| PostgreSQL | 5432 | Database |
 | Redis | 6379 | Celery broker + Pub/Sub for WebSocket |
 | Celery Worker | - | Background task processor |
 | Flower | 5555 | Celery monitoring dashboard |
@@ -349,8 +347,7 @@ docker-compose up --build
 │   ├── __init__.py           # Package marker
 │   ├── main.py               # FastAPI app + WebSocket endpoint
 │   ├── celery_app.py         # Celery configuration
-│   ├── tasks.py              # Background tasks (including chat_task)
-│   └── database.py           # Database configuration
+│   └── tasks.py              # Background tasks (including chat_task)
 ├── frontend/                 # Frontend (Next.js/React)
 │   ├── app/
 │   │   ├── layout.tsx        # Root layout
@@ -373,7 +370,6 @@ docker-compose up --build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| DATABASE_URL | postgresql+asyncpg://postgres:postgres@postgres:5432/app_db | PostgreSQL connection string |
 | CELERY_BROKER_URL | redis://redis:6379/0 | Redis broker URL |
 | CELERY_RESULT_BACKEND | redis://redis:6379/1 | Redis result backend URL |
 | FRONTEND_URL | http://localhost:3000 | Frontend URL for CORS |
