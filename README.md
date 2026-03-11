@@ -1,176 +1,115 @@
-## FastAPI + Celery + Next.js Chatbot
+# FastAPI + Celery + Next.js Chatbot
 
-A full-stack chatbot application built with:
+A full‑stack chatbot application built with:
 
-- FastAPI backend (HTTP API + WebSocket streaming)
+- FastAPI backend (HTTP API + WebSocket)
 - Celery workers for background chat processing
-- Redis as Celery broker and Pub/Sub transport
+- Redis as message broker and pub/sub
 - Next.js frontend chat UI
-- Flower dashboard for monitoring Celery workers and tasks
+- Flower dashboard for monitoring Celery
 
-## Quick Start
+This README is focused on helping you run and understand the app quickly.
+
+## 1. Quick Start (Docker)
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
+- Docker
+- Docker Compose
 
-### Start all services
+### Start the whole stack
 
 ```bash
 docker-compose up --build
 ```
 
-### Access points
+### Main URLs
 
-- **Frontend Chat Room**: http://localhost:3000
-- **FastAPI Application**: http://localhost:8000
-- **API Documentation (Swagger)**: http://localhost:8000/docs
-- **Alternative API Docs (ReDoc)**: http://localhost:8000/redoc
-- **Flower Monitoring**: http://localhost:5555
+- Frontend chat UI: `http://localhost:3000`
+- FastAPI app: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+- ReDoc docs: `http://localhost:8000/redoc`
+- Flower (Celery monitoring): `http://localhost:5555`
 
-## Architecture
+## 2. What's Running
 
-```text
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Next.js   │────▶│  FastAPI    │────▶│   Redis     │
-│  Frontend   │◀───▶│  (API/WS)   │     │  (Pub/Sub)  │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-   (Port 3000)         (Port 8000)             │
-                                               ▼
-                                        ┌─────────────┐
-                                        │   Celery    │
-                                        │   Worker    │
-                                        └──────┬──────┘
-                                               │
-                                               ▼
-                                        ┌─────────────┐
-                                        │   Flower    │
-                                        │  (Monitor)  │
-                                        └─────────────┘
-```
+| Service          | Port | Role                                      |
+|------------------|------|-------------------------------------------|
+| Next.js frontend | 3000 | Chat UI with WebSocket                    |
+| FastAPI          | 8000 | HTTP API + WebSocket server               |
+| Redis            | 6379 | Celery broker + pub/sub for streaming     |
+| Celery worker(s) | -    | Background processing of chat tasks        |
+| Flower           | 5555 | Celery monitoring dashboard               |
 
-### Services
+## 3. Chat Flow (High Level)
 
-| Service            | Port | Description                                |
-|--------------------|------|--------------------------------------------|
-| Next.js Frontend   | 3000 | Chat room UI with WebSocket client        |
-| FastAPI            | 8000 | Main API + WebSocket server               |
-| Redis              | 6379 | Celery broker + Pub/Sub for WebSocket     |
-| Celery Worker      | -    | Background task processor                  |
-| Flower             | 5555 | Celery monitoring dashboard                |
-
-## WebSocket Streaming Flow
-
-High-level streaming model:
-
-```text
-Browser ─WS─▶ FastAPI ─Pub/Sub─▶ Redis ─▶ Celery Worker
-   ▲                                           │
-   └────────────────── streamed tokens ◀───────┘
-```
-
-Detailed sequence:
-
-1. Browser tab creates a unique `chat_id` (UUID).
-2. Browser opens `WS /ws/{chat_id}` (one persistent WebSocket per tab).
-3. User clicks "Start Chat" which sends `POST /chat/{chat_id}/start`.
+1. The browser generates a `chat_id` (UUID).
+2. It opens a WebSocket to `/ws/{chat_id}`.
+3. The user clicks **Start Chat**, which sends `POST /chat/{chat_id}/start`.
 4. FastAPI enqueues a Celery task and returns `202 Accepted` immediately.
-5. Celery worker processes the chat request and publishes events to Redis on `chat:{chat_id}`.
-6. FastAPI WebSocket handler subscribes to `chat:{chat_id}` and forwards events to the browser.
-7. Frontend renders the streamed response word-by-word until completion.
+5. The Celery worker processes the chat and publishes messages to Redis on channel `chat:{chat_id}`.
+6. FastAPI, subscribed to that Redis channel, forwards messages to the WebSocket.
+7. The frontend renders the response as it streams in (word by word) until completion.
 
-### Message Types
+### WebSocket message types
 
-| Type        | Direction       | Description                               |
-|-------------|-----------------|-------------------------------------------|
-| `connected` | Server → Client | WebSocket connection established          |
-| `start`     | Server → Client | Task has started processing               |
-| `stream`    | Server → Client | Streamed word/token from response         |
-| `complete`  | Server → Client | Task finished, includes full response     |
+| Type        | Direction       | Description                                   |
+|-------------|-----------------|-----------------------------------------------|
+| `connected` | Server → Client | WebSocket connection established              |
+| `start`     | Server → Client | Task has started processing                   |
+| `stream`    | Server → Client | Streamed word/token from the response         |
+| `complete`  | Server → Client | Task finished; includes the full final reply  |
 
-## Load Testing with Locust
+## 4. API Endpoints (Backend)
 
-Load testing is available using [Locust](https://locust.io/) to simulate concurrent users and WebSocket connections.
+| Method | Endpoint                | Description                                         |
+|--------|-------------------------|-----------------------------------------------------|
+| `GET`  | `/health`               | Simple health check                                 |
+| `POST` | `/tasks/hello`          | Example background task                             |
+| `GET`  | `/tasks/{task_id}`      | Get task status and result                          |
+| `POST` | `/chat/{chat_id}/start` | Start chat task; response is streamed via WebSocket |
+| `WS`   | `/ws/{chat_id}`         | WebSocket for receiving streamed responses          |
+| `GET`  | `/queue/stats`          | Queue statistics (waiting, active, reserved)        |
 
-Each simulated user:
+## 5. Load Testing (Locust)
 
-- Establishes a persistent WebSocket connection (like a real browser tab)
-- Repeatedly sends chat requests via HTTP POST
-- Receives streamed responses through the WebSocket
-- Waits between messages to mimic "connect once, chat multiple times"
+This project includes a Locust setup to simulate concurrent chat users and WebSocket connections.
 
-### Running Load Tests
+From the `load_test` directory:
 
 ```bash
 cd load_test
 
-# With Web UI (interactive)
+# Web UI (recommended while exploring)
 locust -f locustfile.py --host=http://localhost:8000
 
-# Headless mode (automated)
+# Headless mode (example)
 locust -f locustfile.py --host=http://localhost:8000 --users 100 --spawn-rate 10 --run-time 1m --headless
 ```
 
-Open http://localhost:8089 to configure and start the test via the web interface.
+Then open `http://localhost:8089` in your browser to control tests via the Locust UI.
 
-### User Types
+### User types
 
-| User Type           | Description                                                                    |
-|---------------------|--------------------------------------------------------------------------------|
-| `ChatUser`          | Connects WebSocket, sends chat messages, receives streamed responses          |
-| `WebSocketOnlyUser` | Maintains idle WebSocket connections to test max connection capacity          |
+| User Type            | Description                                                                 |
+|----------------------|-----------------------------------------------------------------------------|
+| `ChatUser`           | Opens WS, sends chat messages, receives streamed responses repeatedly       |
+| `WebSocketOnlyUser`  | Keeps WS connections open without sending messages (tests connection limits) |
 
-### Key Metrics
+### Key metrics to watch
 
-| Metric            | Meaning                                     | What to Expect                                      |
-|-------------------|---------------------------------------------|-----------------------------------------------------|
-| **Response Time** | Time from request sent to full response     | Grows gradually; sharp spikes indicate bottlenecks  |
-| **RPS**           | Requests per second (throughput)            | Scales with users until hitting system capacity     |
-| **Failure Rate**  | Percentage of failed requests               | Should remain near 0%; rises under overload         |
-| **Active Users**  | Concurrent users with open WebSocket conns  | Each holds memory and file-descriptor resources     |
+- **Response Time** – from request to full response; spikes signal bottlenecks.
+- **RPS (Requests/sec)** – throughput; should rise with users until capacity is reached.
+- **Failure Rate** – should stay near 0%; rising failures mean overload.
+- **Active Users** – concurrent WebSocket connections (each consumes server resources).
 
-As users increase, response times first grow gradually, then sharply when a bottleneck is reached. RPS plateaus when the system is saturated.
+## 6. Scaling Notes
 
-## Scalability Improvements
+The default configuration is tuned to handle reasonably high concurrency:
 
-This application includes several optimizations for handling high concurrent load:
+- FastAPI: multiple Uvicorn workers for parallel HTTP/WS handling.
+- Celery: gevent worker pool with high concurrency for IO‑bound chat tasks.
+- Celery: multiple worker containers for horizontal scaling.
+- Redis: connection pooling via `from_url()` to reuse connections efficiently.
 
-| Component  | Improvement                      | Details                                                                 |
-|-----------|-----------------------------------|-------------------------------------------------------------------------|
-| FastAPI   | 4 Uvicorn workers                 | Multi-process concurrency to handle more HTTP/WebSocket requests       |
-| Celery    | Gevent pool with 100 concurrency | `--pool=gevent --concurrency=100` for efficient IO-bound chat tasks   |
-| Celery    | 2 worker containers               | Horizontal scaling with multiple worker containers                     |
-| Redis     | Connection pooling                | `from_url()` with built-in pooling to reuse connections                |
-
-These defaults allow the app to handle hundreds of concurrent chat sessions. To scale further, increase the number of Celery worker containers or adjust concurrency settings for your environment.
-
-## Monitoring with Flower
-
-Access Flower at http://localhost:5555 to:
-
-- View active, processed, and failed tasks
-- Monitor worker status and performance
-- Inspect task details and results
-- View task execution graphs and timelines
-
-## How It Works (End-to-End)
-
-1. Each browser tab generates a unique UUID as the chat room ID.
-2. The tab establishes a WebSocket connection to `/ws/{chat_id}`.
-3. Clicking "Start Chat" sends a POST request to `/chat/{chat_id}/start`.
-4. The backend queues a Celery task and returns immediately (`202 Accepted`).
-5. The Celery worker processes the task and publishes messages to Redis.
-6. The FastAPI WebSocket handler receives messages from Redis and forwards them to the connected client.
-7. The frontend displays the streamed response word by word.
-
-## API Endpoints
-
-| Method | Endpoint                | Description                                        |
-|--------|-------------------------|----------------------------------------------------|
-| `GET`  | `/health`               | Health check - returns API status                 |
-| `POST` | `/tasks/hello`          | Trigger a hello world background task             |
-| `GET`  | `/tasks/{task_id}`      | Get task status and result                        |
-| `POST` | `/chat/{chat_id}/start` | Start a chat task that streams via WebSocket      |
-| `WS`   | `/ws/{chat_id}`         | WebSocket connection for receiving streamed responses |
-| `GET`  | `/queue/stats`          | Get queue statistics (waiting, active, reserved)  |
-
+To scale further, increase the number of Celery worker containers and/or adjust worker concurrency, and ensure Redis and FastAPI have sufficient resources and connection limits.
