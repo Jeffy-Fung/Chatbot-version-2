@@ -1,6 +1,6 @@
 # FastAPI + Celery + Next.js Chatbot Application
 
-A full-stack chatbot application with FastAPI backend, Celery background task processing, WebSocket streaming, and a Next.js frontend. Features Redis message broker and Flower monitoring.
+A full-stack chatbot application combining a FastAPI backend, Celery background task processing, WebSocket streaming, and a Next.js frontend. Redis acts as the message broker/pub-sub layer, and Flower provides task monitoring.
 
 ## Architecture
 
@@ -81,9 +81,9 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
 
 ## Load Testing
 
-Load testing is available using [Locust](https://locust.io/) to simulate concurrent users and WebSocket connections.
+Load testing is implemented with [Locust](https://locust.io/) to simulate concurrent users and WebSocket connections.
 
-Each simulated user establishes a persistent WebSocket connection (just like a real browser tab), then repeatedly sends chat requests via HTTP POST. The user receives streamed responses through the WebSocket until completion, then waits before sending another message. This mimics real user behavior: connect once, chat multiple times.
+Each simulated user opens a persistent WebSocket connection (like a real browser tab), repeatedly sends chat requests via HTTP POST, and receives streamed responses on the same WebSocket. After each response completes, the user waits briefly before sending another message, mimicking real behavior: connect once, chat many times.
 
 ### Running Load Tests
 
@@ -115,7 +115,7 @@ Open http://localhost:8089 to configure and start the test via the web interface
 | **Failure Rate** | Percentage of failed requests | Should stay near 0%; rising failures indicate overload |
 | **Active Users** | Concurrent users with open WebSocket connections | Each holds server resources (memory, file descriptors) |
 
-As users increase: response times grow gradually at first, then sharply when a bottleneck is reached. RPS plateaus when the system is saturated.
+As the number of users grows, response times increase gradually at first, then sharply once a bottleneck is reached. RPS eventually plateaus when the system becomes saturated.
 
 ### Potential Bottlenecks
 
@@ -127,7 +127,7 @@ As users increase: response times grow gradually at first, then sharply when a b
 
 ## Scalability Improvements
 
-This application includes several optimizations for handling high concurrent load:
+This application includes several optimizations to handle high concurrent load:
 
 | Component | Improvement | Details |
 |-----------|-------------|---------|
@@ -136,7 +136,7 @@ This application includes several optimizations for handling high concurrent loa
 | **Celery** | 2 worker containers | Horizontal scaling with multiple worker containers for higher throughput |
 | **Redis** | Connection pooling | Uses `from_url()` which includes built-in connection pooling, reusing connections instead of creating new ones per request |
 
-These configurations allow the app to handle hundreds of concurrent chat sessions. To scale further, increase the number of Celery worker containers or adjust concurrency settings.
+These settings allow the app to support hundreds of concurrent chat sessions. To scale further, increase the number of Celery worker containers and/or adjust concurrency values.
 
 ## Services
 
@@ -172,20 +172,20 @@ docker-compose up --build
 
 Access Flower at http://localhost:5555 to:
 
-- View active, processed, and failed tasks
-- Monitor worker status and performance
-- Inspect task details and results
-- View task execution graphs
+- Track active, scheduled, and failed tasks
+- Monitor worker health and performance
+- Inspect individual task details and results
+- Visualize task execution over time
 
 ## How It Works
 
-1. Each browser tab generates a unique UUID as the chat room ID
-2. The tab establishes a WebSocket connection to `/ws/{chat_id}`
-3. Clicking "Start Chat" sends a POST request to `/chat/{chat_id}/start`
-4. The backend queues a Celery task and returns immediately (202 Accepted)
-5. The Celery worker processes the task and publishes messages to Redis
-6. The FastAPI WebSocket handler receives messages from Redis and forwards them to the connected client
-7. The frontend displays the streamed response word by word
+1. Each browser tab generates a unique UUID that serves as the chat room ID.
+2. The tab opens a WebSocket connection to `/ws/{chat_id}`.
+3. Clicking **Start Chat** sends a POST request to `/chat/{chat_id}/start`.
+4. The backend enqueues a Celery task and immediately returns `202 Accepted`.
+5. The Celery worker processes the chat task and publishes messages to Redis.
+6. The FastAPI WebSocket handler consumes messages from Redis and forwards them to the client.
+7. The frontend renders the streamed response incrementally (word by word).
 
 ## API Endpoints
 
