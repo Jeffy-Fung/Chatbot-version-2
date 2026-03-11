@@ -39,20 +39,22 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
          │  ◄─────────────────────────│                            │                            │
          │                            │                            │                            │
          │  4. POST /chat/{id}/start  │                            │                            │
-         │  ─────────────────────────►│  5. Queue task (broker)    │                            │
-         │                            │  ─────────────────────────────────────────────────────►│
-         │  6. 202 Accepted           │                            │                            │
+         │  ─────────────────────────►│  5. Enqueue task in Redis  │                            │
+         │                            │  ─────────────────────────►│                            │
+         │                            │                            │  6. Celery worker pulls    │
+         │                            │                            │  ─────────────────────────►│
+         │  7. 202 Accepted           │                            │                            │
          │  ◄─────────────────────────│                            │                            │
          │                            │                            │                            │
-         │                            │                            │  7. Worker picks up task   │
+         │                            │                            │  8. Worker picks up task   │
          │                            │                            │  ◄─────────────────────────│
          │                            │                            │                            │
-         │                            │                            │  8. PUBLISH "start"        │
-         │                            │  9. Receive (subscribed)   │  ◄─────────────────────────│
-         │  10. WS {"type":"start"}   │  ◄─────────────────────────│                            │
+         │                            │                            │  9. PUBLISH "start"        │
+         │                            │ 10. Receive (subscribed)   │  ◄─────────────────────────│
+         │  11. WS {"type":"start"}   │  ◄─────────────────────────│                            │
          │  ◄─────────────────────────│                            │                            │
          │                            │                            │                            │
-         │                            │                            │  11. PUBLISH "stream"      │
+         │                            │                            │  12. PUBLISH "stream"      │
          │                            │  ◄─────────────────────────│  ◄─────────────────────────│
          │  WS {"type":"stream",...}  │                            │      (word by word)        │
          │  ◄─────────────────────────│                            │                            │
@@ -60,9 +62,9 @@ A full-stack chatbot application with FastAPI backend, Celery background task pr
          │          ...               │           ...              │  ◄─────────────────────────│
          │  ◄─────────────────────────│  ◄─────────────────────────│      (repeat for each)     │
          │                            │                            │                            │
-         │                            │                            │  12. PUBLISH "complete"    │
+         │                            │                            │  13. PUBLISH "complete"    │
          │                            │  ◄─────────────────────────│  ◄─────────────────────────│
-         │  13. WS {"type":"complete"}│                            │                            │
+         │  14. WS {"type":"complete"}│                            │                            │
          │  ◄─────────────────────────│                            │                            │
          │                            │                            │                            │
 ┌────────┴────────┐          ┌────────┴────────┐          ┌────────┴────────┐          ┌────────┴────────┐
